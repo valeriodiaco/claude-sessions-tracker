@@ -1,5 +1,7 @@
 INDEX.md
 snapshots/
+workspaces/
 session_*.md
 archive/
 .DS_Store
+__pycache__/
