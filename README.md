@@ -1,105 +1,143 @@
 # Claude Code Sessions Tracker
 
-Track, snapshot, and recover [Claude Code](https://docs.anthropic.com/en/docs/claude-code) terminal sessions. Restore your entire workspace after a reboot, power outage, or account switch.
+Save and restore your entire Claude Code workspace — terminal windows, positions, sessions, scripts. Power goes out, you switch accounts, you reboot — one command brings everything back exactly as it was.
 
-## The Problem
+## What It Does
 
-Claude Code saves conversations locally as `.jsonl` files in `~/.claude/projects/`. But:
+| Feature | Details |
+|---------|---------|
+| **Window positions & sizes** | Exact pixel coordinates via AppleScript |
+| **Claude Code sessions** | Matched via TTY → PID → session ID correlation |
+| **Watchdog & monitors** | Full command captured for auto-restart |
+| **Automation scripts** | Captured and restartable |
+| **Custom titles** | Preserved (from `/rename` in Claude Code) |
+| **Terminal.app profile** | Per-window profile detection |
+| **Multi-account** | Scans all `~/.claude*/projects/` directories |
+| **Obsidian integration** | Session map with YAML frontmatter |
+| **JSON export** | Machine-readable for EVA/n8n/automation |
 
-- File names are UUIDs — impossible to know which conversation is which
-- Folder names are derived from the working directory path — if you rename a folder, you lose the link
-- `claude --continue` only resumes the last session in the current directory
-- No built-in way to see all your active sessions at a glance
-- Switching accounts (quota limits) loses track of open sessions
-
-If you juggle multiple Claude Code sessions across projects, terminals, or accounts, finding and resuming the right one is painful.
-
-## The Solution
-
-A single bash script that:
-
-1. **Lists** recent sessions with human-readable previews (first/last message, project, working dir)
-2. **Snapshots** currently active sessions before you switch accounts or close terminals
-3. **Saves workspace** with a restore script (opens Terminal.app tabs) + Obsidian session map + JSON for automation
-4. **Restores** your entire workspace — all sessions reopened in separate Terminal tabs
-5. **Searches** across all sessions by content
-6. **Multi-account aware** — scans all `~/.claude*/projects/` directories
-
-## Installation
+## Quick Start
 
 ```bash
 git clone https://github.com/valeriodiaco/claude-sessions-tracker.git
 cd claude-sessions-tracker
-chmod +x claude-sessions.sh
+
+# See current state
+python3 workspace-manager.py status
+
+# Save everything before switching accounts / shutting down
+python3 workspace-manager.py save pre-switch
+
+# After reboot / account switch — restore everything
+python3 workspace-manager.py restore
 ```
 
 ### Requirements
 
-- macOS (uses `stat -f`, AppleScript for Terminal.app tabs)
-- Python 3 (for JSONL parsing)
-- Claude Code installed (`~/.claude/projects/` must exist)
+- macOS with Terminal.app
+- Python 3.9+
+- Claude Code installed
 
-## Usage
+## Commands
+
+### workspace-manager.py (Full workspace — recommended)
+
+```bash
+# Live status — see all windows, sessions, processes
+python3 workspace-manager.py status
+
+# Save workspace (auto-named by timestamp)
+python3 workspace-manager.py save
+
+# Save with custom name
+python3 workspace-manager.py save pre-switch
+
+# Restore latest workspace (all windows at exact positions)
+python3 workspace-manager.py restore
+
+# Restore specific workspace
+python3 workspace-manager.py restore pre-switch
+
+# Restore only Claude sessions (skip watchdog/monitors/idle)
+python3 workspace-manager.py restore --claude
+
+# Restore only scripts (watchdog, monitors)
+python3 workspace-manager.py restore --scripts
+
+# Restore specific windows by number
+python3 workspace-manager.py restore 1 5 9 16
+
+# List without restoring
+python3 workspace-manager.py restore --list
+
+# List all saved workspaces
+python3 workspace-manager.py list
+```
+
+### claude-sessions.sh (Lightweight session listing)
 
 ```bash
 # List today's sessions
 ./claude-sessions.sh
 
-# List sessions from the last 7 days
+# List last 7 days
 ./claude-sessions.sh list 7
 
-# Quick snapshot of active sessions (last 4 hours)
-./claude-sessions.sh snapshot
-
-# Full workspace save: restore script + Obsidian map + JSON
-./claude-sessions.sh workspace
-
-# Workspace with custom name
-./claude-sessions.sh workspace pre-account-switch
-
-# Restore all sessions (opens Terminal.app tabs)
-./claude-sessions.sh restore
-
-# Restore specific sessions only
-./claude-sessions.sh restore restore.sh 1 3 7
-
-# List sessions in a restore file without opening them
-bash snapshots/workspace_*/restore.sh --list
+# Quick snapshot (sessions only, no window positions)
+./claude-sessions.sh snapshot pre-switch
 
 # Search sessions by content
-./claude-sessions.sh find "authentication bug"
+./claude-sessions.sh find "refactor auth"
 
-# Open Claude's built-in interactive picker
+# Claude's built-in interactive picker
 ./claude-sessions.sh resume
 ```
 
-## Workspace Save & Restore
+## Typical Workflows
 
-The `workspace` command generates three files:
+### Switching Claude accounts (quota limit)
+
+```bash
+# 1. Save
+python3 workspace-manager.py save pre-switch
+
+# 2. Switch
+claude logout && claude login
+
+# 3. Restore — all 20+ windows reopen at exact positions
+python3 workspace-manager.py restore
+```
+
+### Power outage / reboot
+
+```bash
+# If you saved before (or have a cron/hook saving periodically):
+python3 workspace-manager.py restore
+
+# If you didn't save — sessions are still in JSONL files:
+./claude-sessions.sh list 1
+# Then manually: claude --resume <SESSION_ID>
+```
+
+### Finding a lost session
+
+```bash
+./claude-sessions.sh find "database migration"
+# or
+python3 workspace-manager.py status
+```
+
+## Output Files
+
+Each workspace save creates:
 
 | File | Purpose |
 |------|---------|
-| `restore.sh` | Bash script that opens each session in a Terminal.app tab via AppleScript |
-| `session_map.md` | Markdown with YAML frontmatter — open in Obsidian, copy `claude --resume` commands |
-| `session_map.json` | Machine-readable JSON for automation/EVA integration |
+| `restore.sh` | Bash + AppleScript — opens Terminal.app windows at exact positions |
+| `session_map.md` | Obsidian-compatible Markdown with YAML frontmatter, grouped by type |
+| `workspace.json` | Full structured data for automation (EVA ingestion, n8n, etc.) |
 
-### Typical workflow
-
-```bash
-# 1. Before switching accounts / shutting down
-./claude-sessions.sh workspace pre-switch
-
-# 2. Switch account
-claude logout && claude login
-
-# 3. Restore everything
-./claude-sessions.sh restore
-# → opens 20+ Terminal.app tabs, each resuming a session
-```
-
-### Obsidian Integration
-
-The `session_map.md` includes EVA-compatible frontmatter:
+### session_map.md format
 
 ```yaml
 ---
@@ -111,59 +149,50 @@ tags: [claude-code, session-tracker, workspace-restore]
 ---
 ```
 
-Each session entry has a ready-to-use resume command:
-
+Each Claude session includes a ready-to-use resume command:
 ```bash
 claude --resume f1b0924e-d0e2-4247-bdde-5cdfa622b525
 ```
 
-### JSON for Automation
+## What Gets Captured
 
-The `session_map.json` can be consumed by other tools (EVA ingestion, n8n workflows, etc.):
+```
+Terminal.app: 26 windows | Claude PIDs: 20 | Sessions: 52
 
-```json
-{
-  "workspace": "pre-switch",
-  "created": "2026-03-03T14:35:36Z",
-  "sessions": [
-    {
-      "session_id": "f1b0924e-...",
-      "cwd": "/Users/v/my-project",
-      "first_msg": "Fix the auth bug in...",
-      "messages": 45,
-      "resume": "claude --resume f1b0924e-..."
-    }
-  ]
-}
+  [ 1] [CLAUDE    ] [OK] ✳ ADAM_builder_ADMIN          (13,47)    563x1477   f1b0924e…
+  [ 2] [CLAUDE    ] [OK] ✳ GEO_Proj_ADMIN              (7,32)     738x1505   0d28d5f6…
+  [ 3] [CLAUDE    ] [OK] ✳ 1_Mirko_LSB                 (1323,32)  626x623    f5f87528…
+  [12] [WATCHDOG  ] [OK] Terminal                       (550,488)  479x371    bash watchdog.sh -t 70
+  [14] [MONITOR   ] [OK] Terminal                       (44,42)    500x441    bash monitor.sh --watch
+  [18] [IDLE_SHELL] [OK] Terminal                       (2574,406) 423x973
 ```
 
 ## Multi-Account Support
 
-The script automatically discovers all Claude Code config directories:
+Automatically discovers all Claude Code config directories:
 
-- `~/.claude/projects/` (default)
-- `~/.claude-auto/projects/` (automation account)
-- `~/.claude-main/projects/` (main account)
-- Any other `~/.claude-*/projects/` directories
+```
+~/.claude/projects/          # default account
+~/.claude-auto/projects/     # automation account
+~/.claude-main/projects/     # main account
+```
 
-Works with [claude-code-multi-account](https://github.com/valeriodiaco/claude-code-multi-account) and [claude-code-dual-account](https://github.com/valeriodiaco/claude-code-dual-account).
+Works with [claude-code-multi-account](https://github.com/valeriodiaco/claude-code-multi-account).
+
+## Limitations
+
+- **Desktop/Spaces**: macOS doesn't expose which Space (virtual desktop) a window belongs to via API. Windows restore on the current Space. Consider using [yabai](https://github.com/koekeishiya/yabai) for full Space management.
+- **Non-Terminal apps**: Only tracks Terminal.app windows. Finder, n8n, browsers are not captured.
+- **Session matching**: Uses heuristics (window title ↔ cwd ↔ session ID). With many similar sessions (e.g., 15 EVA Consolidation sessions), some may be matched to wrong session IDs.
 
 ## Related Tools
 
 | Tool | Description |
 |------|-------------|
 | [claude-code-multi-account](https://github.com/valeriodiaco/claude-code-multi-account) | Run 2-5 Claude Max accounts with load balancing |
-| [claude_code_usage_watchdog](https://github.com/valeriodiaco/claude_code_usage_watchdog) | Monitor API usage, kill automation on threshold |
+| [claude_code_usage_watchdog](https://github.com/valeriodiaco/claude_code_usage_watchdog) | Monitor usage, kill automation on threshold |
 | [claude-code-token-counter](https://github.com/valeriodiaco/claude-code-token-counter) | Track token usage and costs per session |
-
-## How Claude Code Stores Sessions
-
-- **Location:** `~/.claude/projects/<project-folder>/<uuid>.jsonl`
-- **Project folder:** derived from the working directory path (slashes → dashes)
-- **Format:** one JSON object per line, with `type: "user"` or `type: "assistant"`
-- **Content:** in `obj.message.content` (string or list of content blocks)
-- **Working dir:** in `obj.cwd` (first user message)
-- **Resume:** `claude --resume <uuid>` from any directory
+| [eva-automation](https://github.com/valeriodiaco/eva-automation) | EVA knowledge system automation scripts |
 
 ## License
 
